@@ -546,48 +546,90 @@ class ParallelTemperingTL(object):
 		eta = np.zeros(self.num_chains)
 		# Define the starting and ending of MCMC Chains
 		start = 0
-		end = self.NumSamples-1
+		end = self.num_samples-1
 		number_exchange = np.zeros(self.num_chains)
 		filen = open(self.path + '/num_exchange.txt', 'a')
-		#RUN MCMC CHAINS
-		for l in range(0,self.num_chains):
-			self.chains[l].start_chain = start
-			self.chains[l].end = end
-		for j in range(0,self.num_chains):
-			self.chains[j].start()
+
+
+        #RUN MCMC CHAINS
+        for index in range(self.num_sources):
+            for l in range(0,self.num_chains):
+			    self.source_chains[index][l].start_chain = start
+			    self.source_chains[index][l].end = end
+
+        for l in range(self.num_chains):
+            self.target_chains[l].start_chain = start
+            self.target_chains[l].end = end
+
+        for index in range(self.num_sources):
+		    for j in range(0,self.num_chains):
+                self.source_chains[index][j].start()
+
+        for j in range(self.num_chains):
+            self.target_chains[j].start()
+
 		#SWAP PROCEDURE
 		#chain_num = 0
-
 		while True:
-			for k in range(0,self.num_chains):
-				self.wait_chain[k].wait()
-				#print(chain_num)
+            for index in range(self.num_sources):
+                for k in range(0,self.num_chains):
+                    self.source_wait_chain[index][k].wait()
+
+    			for k in range(0,self.num_chains-1):
+    				#print('starting swap')
+    				self.source_chain_queue[index].put(self.swap_procedure(self.source_parameter_queue[index][k], self.source_parameter_queue[index][k+1]))
+
+                    while True:
+    					if self.source_chain_queue[index].empty():
+    						self.source_chain_queue[index].task_done()
+    						#print(k,'EMPTY QUEUE')
+    						break
+    					swap_process = self.source_chain_queue[index].get()
+    					#print(swap_process)
+    					if swap_process is None:
+    						self.source_chain_queue[index].task_done()
+    						#print(k,'No Process')
+    						break
+    					param1, param2 = swap_process
+
+    					self.source_parameter_queue[index][k].put(param1)
+    					self.source_parameter_queue[index][k+1].put(param2)
+    			for k in range (self.num_chains):
+    					self.source_event[index][k].set()
+
+            for k in range(0,self.num_chains):
+                self.target_wait_chain[k].wait()
+
 			for k in range(0,self.num_chains-1):
 				#print('starting swap')
-				self.chain_queue.put(self.swap_procedure(self.parameter_queue[k],self.parameter_queue[k+1]))
-				while True:
-					if self.chain_queue.empty():
-						self.chain_queue.task_done()
+				self.target_chain_queue[index].put(self.swap_procedure(self.target_parameter_queue[k], self.target_parameter_queue[k+1]))
+
+                while True:
+					if self.target_chain_queue.empty():
+						self.target_chain_queue.task_done()
 						#print(k,'EMPTY QUEUE')
 						break
-					swap_process = self.chain_queue.get()
+					swap_process = self.target_chain_queue.get()
 					#print(swap_process)
 					if swap_process is None:
-						self.chain_queue.task_done()
+						self.target_chain_queue.task_done()
 						#print(k,'No Process')
 						break
 					param1, param2 = swap_process
 
-					self.parameter_queue[k].put(param1)
-					self.parameter_queue[k+1].put(param2)
+					self.target_parameter_queue[k].put(param1)
+					self.target_parameter_queue[k+1].put(param2)
 			for k in range (self.num_chains):
-					#print(k)
-					self.event[k].set()
+					self.target_event[k].set()
 			count = 0
-			for i in range(self.num_chains):
-				if self.chains[i].is_alive() is False:
-					count+=1
-			if count == self.num_chains  :
+            for index in range(self.num_sources):
+                for i in range(self.num_chains):
+                    if self.source_chains[index][i].is_alive() is False:
+                        count += 1
+            for i in range(self.num_chains):
+                if self.target_chains[i].is_alive() is False:
+					count += 1
+			if count == (self.num_sources + 1)*self.num_chains :
 				#print(count)
 				break
 
