@@ -22,7 +22,7 @@ from scipy.stats import norm
 
 #REGRESSION FNN Randomwalk (Taken from R. Chandra, L. Azizi, S. Cripps, 'Bayesian neural learning via Langevin dynamicsfor chaotic time series prediction', ICONIP 2017.)
 
-class Network:
+class Network(object):
 
 	def __init__(self, Topo, Train, Test, learn_rate):
 		self.Top = Topo  # NN topology [input, hidden, output]
@@ -93,6 +93,30 @@ class Network:
 		w2 = self.W2.ravel()
 		w = np.concatenate([w1, w2, self.B1, self.B2])
 		return w
+
+    @staticmethod
+    def scaler(data, maxout=1, minout=0, maxin=1, minin=0):
+        attribute = data[:]
+        attribute = minout + (attribute - minin)*((maxout - minout)/(maxin - minin))
+        return attribute
+
+    @staticmethod
+    def denormalize(data, indices, maxval, minval):
+        for i in range(len(indices)):
+            index = indices[i]
+            attribute = data[:, index]
+            attribute = Network.scaler(attribute, maxout=maxval[i], minout=minval[i], maxin=1, minin=0)
+            data[:, index] = attribute
+        return data
+
+    @staticmethod
+    def softmax(fx):
+        ex = np.exp(fx)
+        sum_ex = np.sum(ex, axis = 1)
+        sum_ex = np.multiply(np.ones(ex.shape), sum_ex[:, np.newaxis])
+        prob = np.divide(ex, sum_ex)
+        return prob
+
 
 	def langevin_gradient(self, data, w, depth):  # BP with SGD (Stocastic BP)
 
@@ -320,32 +344,55 @@ class ptReplica(multiprocessing.Process):
 
 		self.signal_main.set()
 
-class ParallelTempering:
 
-	def __init__(self, traindata, testdata, topology, num_chains, maxtemp, NumSample, swap_interval, path):
-		#FNN Chain variables
-		self.traindata = traindata
-		self.testdata = testdata
-		self.topology = topology
-		self.num_param = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
-		#Parallel Tempering variables
-		self.swap_interval = swap_interval
-		self.path = path
-		self.maxtemp = maxtemp
-		self.num_swap = 0
-		self.total_swap_proposals = 0
+
+
+
+
+# Parallel tempering Bayesian Neural transfer Learning Class
+class ParallelTemperingTL(object):
+    def __init__(self, num_chains, samples, sources, train_data, test_data, target_train_data, target_test_data, topology, directory,  max_temp, swap_interval, type='regression'):
+        # Create file objects to write the attributes of the samples
+        self.directory = directory
+        if not os.path.isdir(self.directory):
+            os.mkdir(self.directory)
+        #Source fnn chain variables
+        self.topology = topology
+        self.train_data = train_data
+        self.test_data = test_data
+        self.target_train_data = target_train_data
+        self.target_test_data = target_test_data
+        self.num_param = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
+        #TL Variables
+        self.num_sources = sources
+        self.type = type
+        # Parallel Tempering Variables
+        self.swap_interval = swap_interval
+        self.max_temp = max_temp
+		self.num_swap = [0 for index in range(self.num_sources+1)]
+		self.total_swap_proposals = [0 for index in range(self.num_sources+1)]
 		self.num_chains = num_chains
-		self.chains = []
-		self.temperatures = []
-		self.NumSamples = int(NumSample/self.num_chains)
-		self.sub_sample_size = max(1, int( 0.05* self.NumSamples))
-		# create queues for transfer of parameters between process chain
-		self.parameter_queue = [multiprocessing.Queue() for i in range(num_chains)]
-		self.chain_queue = multiprocessing.JoinableQueue()
-		self.wait_chain = [multiprocessing.Event() for i in range (self.num_chains)]
-		self.event = [multiprocessing.Event() for i in range (self.num_chains)]
+		self.source_chains = [list() for index in range(self.num_sources)]
+        self.target_chains = []
+        self.temperatures = []
+		self.num_samples = int(sample/self.num_chains)
+		self.sub_sample_size = max(1, int( 0.05* self.num_samples))
+        # create queues for transfer of parameters between process chain
+		self.source_parameter_queue = [[multiprocessing.Queue() for i in range(num_chains)] for index in range(self.num_sources)]
+        self.target_parameter_queue = [multiprocessing.Queue() for i in range(num_chains)]
+        self.source_chain_queue = [multiprocessing.JoinableQueue() for index in range(num_sources)]
+        self.target_chain_queue = multiprocessing.JoinableQueue()
+		self.source_wait_chain = [[multiprocessing.Event() for i in range (self.num_chains)] for index in range(self.num_sources)]
+        self.target_wait_chain = [multiprocessing.Event() for i in range (self.num_chains)]
+		self.source_event = [[multiprocessing.Event() for i in range (self.num_chains)] for index in range(self.num_sources)]
+        self.target_event = [multiprocessing.Event() for i in range (self.num_chains)]
 
-	def default_beta_ladder(self, ndim, ntemps, Tmax): #https://github.com/konqr/ptemcee/blob/master/ptemcee/sampler.py
+        self.wsize = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
+        self.createPTtasks()
+        self.wsize_target = (self.targetTop[0] * self.targetTop[1]) + (self.targetTop[1] * self.targetTop[2]) + self.targetTop[1] + self.targetTop[2]
+
+    @staticmethod
+    def default_beta_ladder(self, ndim, ntemps, Tmax): #https://github.com/konqr/ptemcee/blob/master/ptemcee/sampler.py
 		"""
 		Returns a ladder of :math:`\beta \equiv 1/T` under a geometric spacing that is determined by the
 		arguments ``ntemps`` and ``Tmax``.  The temperature selection algorithm works as follows:
@@ -436,7 +483,8 @@ class ParallelTempering:
 
 		return betas
 
-	def assign_temperatures(self):
+
+    def assign_temperatures(self):
 		# #Linear Spacing
 		# temp = 2
 		# for i in range(0,self.num_chains):
@@ -447,15 +495,18 @@ class ParallelTempering:
 		betas = self.default_beta_ladder(2, ntemps=self.num_chains, Tmax=self.maxtemp)
 		self.temperatures = [np.inf if beta == 0 else 1.0/beta for beta in betas]
 
-	def initialize_chains(self, burn_in):
+
+    def initialize_chains(self, burn_in):
 		self.burn_in = burn_in
 		self.assign_temperatures()
 		w = np.random.randn(self.num_param)
 
-		for i in range(0, self.num_chains):
-			self.chains.append(ptReplica(w,self.NumSamples,self.traindata,self.testdata,self.topology,self.burn_in,self.temperatures[i],self.swap_interval,self.path,self.parameter_queue[i],self.wait_chain[i],self.event[i]))
+        for s_index in range(self.num_sources):
+            for c_index in range(0, self.num_chains):
+			    self.chains.append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.path, self.parameter_queue[s_index][c_index], self.wait_chain[s_index][c_index], self.event[s_index][c_index]))
 
-	def swap_procedure(self, parameter_queue_1, parameter_queue_2):
+
+    def swap_procedure(self, parameter_queue_1, parameter_queue_2):
 		if parameter_queue_2.empty() is False and parameter_queue_1.empty() is False:
 			param1 = parameter_queue_1.get()
 			param2 = parameter_queue_2.get()
@@ -467,7 +518,6 @@ class ParallelTempering:
 			eta2 = param2[self.num_param]
 			lhood2 = param2[self.num_param+1]
 			T2 = param2[self.num_param+2]
-			#print('yo')
 			#SWAPPING PROBABILITIES
 			try:
 				swap_proposal =  min(1,0.5*np.exp(lhood2 - lhood1))
@@ -485,63 +535,7 @@ class ParallelTempering:
 			self.total_swap_proposals += 1
 			return
 
-	def plot_figure(self, list, title):
-
-		list_points =  list
-
-		fname = self.path
-		width = 9
-
-		font = 9
-
-		fig = plt.figure(figsize=(10, 12))
-		ax = fig.add_subplot(111)
-
-
-		slen = np.arange(0,len(list),1)
-
-		fig = plt.figure(figsize=(10,12))
-		ax = fig.add_subplot(111)
-		ax.spines['top'].set_color('none')
-		ax.spines['bottom'].set_color('none')
-		ax.spines['left'].set_color('none')
-		ax.spines['right'].set_color('none')
-		ax.tick_params(labelcolor='w', top='off', bottom='off', left='off', right='off')
-		ax.set_title(' Posterior distribution', fontsize=  font+2)#, y=1.02)
-
-		ax1 = fig.add_subplot(211)
-
-		n, rainbins, patches = ax1.hist(list_points,  bins = 20,  alpha=0.5, facecolor='sandybrown', density=False)
-
-
-		color = ['blue','red', 'pink', 'green', 'purple', 'cyan', 'orange','olive', 'brown', 'black']
-
-		ax1.grid(True)
-		ax1.set_ylabel('Frequency',size= font+1)
-		ax1.set_xlabel('Parameter values', size= font+1)
-
-		ax2 = fig.add_subplot(212)
-
-		list_points = np.asarray(np.split(list_points,  self.num_chains ))
-
-
-
-
-		ax2.set_facecolor('#f2f2f3')
-		ax2.plot( list_points.T , label=None)
-		ax2.set_title(r'Trace plot',size= font+2)
-		ax2.set_xlabel('Samples',size= font+1)
-		ax2.set_ylabel('Parameter values', size= font+1)
-
-		fig.tight_layout()
-		fig.subplots_adjust(top=0.88)
-
-
-		plt.savefig(fname + '/' + title  + '_pos_.png', bbox_inches='tight', dpi=300, transparent=False)
-		plt.clf()
-
-
-	def run_chains(self):
+    def run_chains(self):
 		x_test = np.linspace(0,1,num=self.testdata.shape[0])
 		x_train = np.linspace(0,1,num=self.traindata.shape[0])
 		# only adjacent chains can be swapped therefore, the number of proposals is ONE less num_chains
@@ -644,8 +638,52 @@ class ParallelTempering:
 		return (pos_w, fx_train, fx_test, x_train, x_test, rmse_train, rmse_test, accept_total)
 
 
-class BNTL(object):
-    def __init__()
+
+
+
+
+    # def createPTtasks(self):
+    #     self.sources = []
+    #     NumSample = 500
+	# 	maxtemp = 20
+	# 	swap_ratio = 0.125
+	# 	num_chains = 10
+	# 	burn_in = 0.2
+    #     swap_interval =  int(swap_ratio * (NumSample/num_chains))
+    #     for index in range(self.numSources):
+    #         path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
+    # 		make_directory(path)
+    #         self.sources.append(ParallelTempering(self.traindata[index], self.testdata[index], self.topology, num_chains, maxtemp, NumSample, swap_interval, path))
+    #     self.targetTop = self.topology.copy()
+    #     self.targetTop[1] = int(1.0 * self.topology[1])
+    #     path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
+    #     make_directory(path)
+    #     self.target = ParallelTempering(self.targettraindata, self.targettestdata, self.targetTop, num_chains, maxtemp, NumSample, swap_interval, path)
+    #
+    # def init_chains(self, burn_in=0.2):
+    #     for index in range(self.numSources):
+    #         self.sources.initialize_chains(burn_in)
+    #     self.target.initialize_chains(burn_in)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -653,134 +691,158 @@ def make_directory (directory):
 	if not os.path.exists(directory):
 		os.makedirs(directory)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def main():
-	resultingfile = open('RESULTS/master_result_file.txt','a+')
-	for i in range(1,3):
-		problem =	2
-		if problem ==	1:
-			traindata = np.loadtxt("Data_OneStepAhead/Lazer/train.txt")
-			testdata	= np.loadtxt("Data_OneStepAhead/Lazer/test.txt")	#
-			name	= "Lazer"
-		if problem ==	2:
-			traindata = np.loadtxt(  "Data_OneStepAhead/Sunspot/train.txt")
-			testdata	= np.loadtxt( "Data_OneStepAhead/Sunspot/test.txt")	#
-			name	= "Sunspot"
-		if problem ==	3:
-			traindata = np.loadtxt("Data_OneStepAhead/Mackey/train.txt")
-			testdata	= np.loadtxt("Data_OneStepAhead/Mackey/test.txt")  #
-			name	= "Mackey"
-		if problem ==	4:
-			traindata = np.loadtxt("Data_OneStepAhead/Lorenz/train.txt")
-			testdata	= np.loadtxt("Data_OneStepAhead/Lorenz/test.txt")  #
-			name	= "Lorenz"
-		if problem ==	5:
-			traindata = np.loadtxt( "Data_OneStepAhead/Rossler/train.txt")
-			testdata	= np.loadtxt( "Data_OneStepAhead/Rossler/test.txt")	#
-			name	= "Rossler"
-		if problem ==	6:
-			traindata = np.loadtxt("Data_OneStepAhead/Henon/train.txt")
-			testdata	= np.loadtxt("Data_OneStepAhead/Henon/test.txt")	#
-			name	= "Henon"
-		if problem ==	7:
-			traindata = np.loadtxt("Data_OneStepAhead/ACFinance/train.txt")
-			testdata	= np.loadtxt("Data_OneStepAhead/ACFinance/test.txt")	#
-			name	= "ACFinance"
-
-		###############################
-		#THESE ARE THE HYPERPARAMETERS#
-		###############################
-
-		hidden = 5
-		ip = 4 #input
-		output = 1
-		topology = [ip, hidden, output]
-
-		NumSample = 500
-		maxtemp = 20
-		swap_ratio = 0.125
-		num_chains = 10
-		burn_in = 0.2
-
-		###############################
-
-		swap_interval =  int(swap_ratio * (NumSample/num_chains)) #how ofen you swap neighbours
-		timer = time.time()
-		path = "RESULTS/"+name+"_results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio)
-		make_directory(path)
-		print(path)
-		pt = ParallelTempering(traindata, testdata, topology, num_chains, maxtemp, NumSample, swap_interval, path)
-		pt.initialize_chains(burn_in)
-
-		pos_w, fx_train, fx_test, x_train, x_test, rmse_train, rmse_test, accept_total = pt.run_chains()
-
-		print ('Successfully Regressed')
-		print (accept_total, '% total accepted')
-
-		timer2 = time.time()
-		print ((timer2 - timer), 'sec time taken')
-
-		#PLOTS
-		fx_mu = fx_test.mean(axis=0)
-		fx_high = np.percentile(fx_test, 95, axis=0)
-		fx_low = np.percentile(fx_test, 5, axis=0)
-
-		fx_mu_tr = fx_train.mean(axis=0)
-		fx_high_tr = np.percentile(fx_train, 95, axis=0)
-		fx_low_tr = np.percentile(fx_train, 5, axis=0)
-
-		rmse_tr = np.mean(rmse_train[:])
-		rmsetr_std = np.std(rmse_train[:])
-		rmse_tes = np.mean(rmse_test[:])
-		rmsetest_std = np.std(rmse_test[:])
-		outres = open(path+'/result.txt', "a+")
-		np.savetxt(outres, (rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total), fmt='%1.5f')
-		print (rmse_tr, rmsetr_std, rmse_tes, rmsetest_std)
-		np.savetxt(resultingfile,(NumSample, maxtemp, swap_ratio, num_chains, rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total))
-		ytestdata = testdata[:, ip]
-		ytraindata = traindata[:, ip]
-
-		plt.plot(x_test, ytestdata, label='actual')
-		plt.plot(x_test, fx_mu, label='pred. (mean)')
-		plt.plot(x_test, fx_low, label='pred.(5th percen.)')
-		plt.plot(x_test, fx_high, label='pred.(95th percen.)')
-		plt.fill_between(x_test, fx_low, fx_high, facecolor='g', alpha=0.4)
-		plt.legend(loc='upper right')
-
-		plt.title("Plot of Test Data vs MCMC Uncertainty ")
-		plt.savefig(path+'/restest.png')
-		plt.savefig(path+'/restest.svg', format='svg', dpi=600)
-		plt.clf()
-		# -----------------------------------------
-		plt.plot(x_train, ytraindata, label='actual')
-		plt.plot(x_train, fx_mu_tr, label='pred. (mean)')
-		plt.plot(x_train, fx_low_tr, label='pred.(5th percen.)')
-		plt.plot(x_train, fx_high_tr, label='pred.(95th percen.)')
-		plt.fill_between(x_train, fx_low_tr, fx_high_tr, facecolor='g', alpha=0.4)
-		plt.legend(loc='upper right')
-
-		plt.title("Plot of Train Data vs MCMC Uncertainty ")
-		plt.savefig(path+'/restrain.png')
-		plt.savefig(path+'/restrain.svg', format='svg', dpi=600)
-		plt.clf()
-
-		mpl_fig = plt.figure()
-		ax = mpl_fig.add_subplot(111)
-
-		# ax.boxplot(pos_w)
-
-		# ax.set_xlabel('[W1] [B1] [W2] [B2]')
-		# ax.set_ylabel('Posterior')
-
-		# plt.legend(loc='upper right')
-
-		# plt.title("Boxplot of Posterior W (weights and biases)")
-		# plt.savefig(path+'/w_pos.png')
-		# plt.savefig(path+'/w_pos.svg', format='svg', dpi=600)
-
-		# plt.clf()
-		#dir()
-		gc.collect()
-		outres.close()
-	resultingfile.close()
+    pass
+# 	resultingfile = open('RESULTS/master_result_file.txt','a+')
+# 	for i in range(1,3):
+# 		problem =	2
+# 		if problem ==	1:
+# 			traindata = np.loadtxt("Data_OneStepAhead/Lazer/train.txt")
+# 			testdata	= np.loadtxt("Data_OneStepAhead/Lazer/test.txt")	#
+# 			name	= "Lazer"
+# 		if problem ==	2:
+# 			traindata = np.loadtxt(  "Data_OneStepAhead/Sunspot/train.txt")
+# 			testdata	= np.loadtxt( "Data_OneStepAhead/Sunspot/test.txt")	#
+# 			name	= "Sunspot"
+# 		if problem ==	3:
+# 			traindata = np.loadtxt("Data_OneStepAhead/Mackey/train.txt")
+# 			testdata	= np.loadtxt("Data_OneStepAhead/Mackey/test.txt")  #
+# 			name	= "Mackey"
+# 		if problem ==	4:
+# 			traindata = np.loadtxt("Data_OneStepAhead/Lorenz/train.txt")
+# 			testdata	= np.loadtxt("Data_OneStepAhead/Lorenz/test.txt")  #
+# 			name	= "Lorenz"
+# 		if problem ==	5:
+# 			traindata = np.loadtxt( "Data_OneStepAhead/Rossler/train.txt")
+# 			testdata	= np.loadtxt( "Data_OneStepAhead/Rossler/test.txt")	#
+# 			name	= "Rossler"
+# 		if problem ==	6:
+# 			traindata = np.loadtxt("Data_OneStepAhead/Henon/train.txt")
+# 			testdata	= np.loadtxt("Data_OneStepAhead/Henon/test.txt")	#
+# 			name	= "Henon"
+# 		if problem ==	7:
+# 			traindata = np.loadtxt("Data_OneStepAhead/ACFinance/train.txt")
+# 			testdata	= np.loadtxt("Data_OneStepAhead/ACFinance/test.txt")	#
+# 			name	= "ACFinance"
+#
+# 		###############################
+# 		#THESE ARE THE HYPERPARAMETERS#
+# 		###############################
+#
+# 		hidden = 5
+# 		ip = 4 #input
+# 		output = 1
+# 		topology = [ip, hidden, output]
+#
+# 		NumSample = 500
+# 		maxtemp = 20
+# 		swap_ratio = 0.125
+# 		num_chains = 10
+# 		burn_in = 0.2
+#
+# 		###############################
+#
+# 		swap_interval =  int(swap_ratio * (NumSample/num_chains)) #how ofen you swap neighbours
+# 		timer = time.time()
+# 		path = "RESULTS/"+name+"_results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio)
+# 		make_directory(path)
+# 		print(path)
+# 		pt = ParallelTempering(traindata, testdata, topology, num_chains, maxtemp, NumSample, swap_interval, path)
+# 		pt.initialize_chains(burn_in)
+#
+# 		pos_w, fx_train, fx_test, x_train, x_test, rmse_train, rmse_test, accept_total = pt.run_chains()
+#
+# 		print ('Successfully Regressed')
+# 		print (accept_total, '% total accepted')
+#
+# 		timer2 = time.time()
+# 		print ((timer2 - timer), 'sec time taken')
+#
+# 		#PLOTS
+# 		fx_mu = fx_test.mean(axis=0)
+# 		fx_high = np.percentile(fx_test, 95, axis=0)
+# 		fx_low = np.percentile(fx_test, 5, axis=0)
+#
+# 		fx_mu_tr = fx_train.mean(axis=0)
+# 		fx_high_tr = np.percentile(fx_train, 95, axis=0)
+# 		fx_low_tr = np.percentile(fx_train, 5, axis=0)
+#
+# 		rmse_tr = np.mean(rmse_train[:])
+# 		rmsetr_std = np.std(rmse_train[:])
+# 		rmse_tes = np.mean(rmse_test[:])
+# 		rmsetest_std = np.std(rmse_test[:])
+# 		outres = open(path+'/result.txt', "a+")
+# 		np.savetxt(outres, (rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total), fmt='%1.5f')
+# 		print (rmse_tr, rmsetr_std, rmse_tes, rmsetest_std)
+# 		np.savetxt(resultingfile,(NumSample, maxtemp, swap_ratio, num_chains, rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total))
+# 		ytestdata = testdata[:, ip]
+# 		ytraindata = traindata[:, ip]
+#
+# 		plt.plot(x_test, ytestdata, label='actual')
+# 		plt.plot(x_test, fx_mu, label='pred. (mean)')
+# 		plt.plot(x_test, fx_low, label='pred.(5th percen.)')
+# 		plt.plot(x_test, fx_high, label='pred.(95th percen.)')
+# 		plt.fill_between(x_test, fx_low, fx_high, facecolor='g', alpha=0.4)
+# 		plt.legend(loc='upper right')
+#
+# 		plt.title("Plot of Test Data vs MCMC Uncertainty ")
+# 		plt.savefig(path+'/restest.png')
+# 		plt.savefig(path+'/restest.svg', format='svg', dpi=600)
+# 		plt.clf()
+# 		# -----------------------------------------
+# 		plt.plot(x_train, ytraindata, label='actual')
+# 		plt.plot(x_train, fx_mu_tr, label='pred. (mean)')
+# 		plt.plot(x_train, fx_low_tr, label='pred.(5th percen.)')
+# 		plt.plot(x_train, fx_high_tr, label='pred.(95th percen.)')
+# 		plt.fill_between(x_train, fx_low_tr, fx_high_tr, facecolor='g', alpha=0.4)
+# 		plt.legend(loc='upper right')
+#
+# 		plt.title("Plot of Train Data vs MCMC Uncertainty ")
+# 		plt.savefig(path+'/restrain.png')
+# 		plt.savefig(path+'/restrain.svg', format='svg', dpi=600)
+# 		plt.clf()
+#
+# 		mpl_fig = plt.figure()
+# 		ax = mpl_fig.add_subplot(111)
+#
+# 		# ax.boxplot(pos_w)
+#
+# 		# ax.set_xlabel('[W1] [B1] [W2] [B2]')
+# 		# ax.set_ylabel('Posterior')
+#
+# 		# plt.legend(loc='upper right')
+#
+# 		# plt.title("Boxplot of Posterior W (weights and biases)")
+# 		# plt.savefig(path+'/w_pos.png')
+# 		# plt.savefig(path+'/w_pos.svg', format='svg', dpi=600)
+#
+# 		# plt.clf()
+# 		#dir()
+# 		gc.collect()
+# 		outres.close()
+# 	resultingfile.close()
 
 if __name__ == "__main__": main()
