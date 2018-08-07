@@ -94,28 +94,28 @@ class Network(object):
 		w = np.concatenate([w1, w2, self.B1, self.B2])
 		return w
 
-    @staticmethod
-    def scaler(data, maxout=1, minout=0, maxin=1, minin=0):
-        attribute = data[:]
-        attribute = minout + (attribute - minin)*((maxout - minout)/(maxin - minin))
-        return attribute
+	@staticmethod
+	def scaler(data, maxout=1, minout=0, maxin=1, minin=0):
+		attribute = data[:]
+		attribute = minout + (attribute - minin)*((maxout - minout)/(maxin - minin))
+		return attribute
 
-    @staticmethod
-    def denormalize(data, indices, maxval, minval):
-        for i in range(len(indices)):
-            index = indices[i]
-            attribute = data[:, index]
-            attribute = Network.scaler(attribute, maxout=maxval[i], minout=minval[i], maxin=1, minin=0)
-            data[:, index] = attribute
-        return data
+	@staticmethod
+	def denormalize(data, indices, maxval, minval):
+		for i in range(len(indices)):
+			index = indices[i]
+			attribute = data[:, index]
+			attribute = Network.scaler(attribute, maxout=maxval[i], minout=minval[i], maxin=1, minin=0)
+			data[:, index] = attribute
+		return data
 
-    @staticmethod
-    def softmax(fx):
-        ex = np.exp(fx)
-        sum_ex = np.sum(ex, axis = 1)
-        sum_ex = np.multiply(np.ones(ex.shape), sum_ex[:, np.newaxis])
-        prob = np.divide(ex, sum_ex)
-        return prob
+	@staticmethod
+	def softmax(fx):
+		ex = np.exp(fx)
+		sum_ex = np.sum(ex, axis = 1)
+		sum_ex = np.multiply(np.ones(ex.shape), sum_ex[:, np.newaxis])
+		prob = np.divide(ex, sum_ex)
+		return prob
 
 
 	def langevin_gradient(self, data, w, depth):  # BP with SGD (Stocastic BP)
@@ -347,48 +347,48 @@ class ptReplica(multiprocessing.Process):
 
 # Parallel tempering Bayesian Neural transfer Learning Class
 class ParallelTemperingTL(object):
-    def __init__(self, num_chains, samples, sources, train_data, test_data, target_train_data, target_test_data, topology, directory,  max_temp, swap_interval, type='regression'):
-        # Create file objects to write the attributes of the samples
-        self.directory = directory
-        if not os.path.isdir(self.directory):
-            os.mkdir(self.directory)
-        #Source fnn chain variables
-        self.topology = topology
-        self.train_data = train_data
-        self.test_data = test_data
-        self.target_train_data = target_train_data
-        self.target_test_data = target_test_data
-        self.num_param = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
-        #TL Variables
-        self.num_sources = sources
-        self.type = type
-        # Parallel Tempering Variables
-        self.swap_interval = swap_interval
-        self.max_temp = max_temp
+	def __init__(self, num_chains, samples, sources, train_data, test_data, target_train_data, target_test_data, topology, directory,  max_temp, swap_interval, type='regression'):
+		# Create file objects to write the attributes of the samples
+		self.directory = directory
+		if not os.path.isdir(self.directory):
+			os.mkdir(self.directory)
+		#Source fnn chain variables
+		self.topology = topology
+		self.train_data = train_data
+		self.test_data = test_data
+		self.target_train_data = target_train_data
+		self.target_test_data = target_test_data
+		self.num_param = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
+		#TL Variables
+		self.num_sources = sources
+		self.type = type
+		# Parallel Tempering Variables
+		self.swap_interval = swap_interval
+		self.max_temp = max_temp
 		self.num_swap = [0 for index in range(self.num_sources+1)]
 		self.total_swap_proposals = [0 for index in range(self.num_sources+1)]
 		self.num_chains = num_chains
 		self.source_chains = [list() for index in range(self.num_sources)]
-        self.target_chains = []
-        self.temperatures = []
+		self.target_chains = []
+		self.temperatures = []
 		self.num_samples = int(sample/self.num_chains)
 		self.sub_sample_size = max(1, int( 0.05* self.num_samples))
-        # create queues for transfer of parameters between process chain
+		# create queues for transfer of parameters between process chain
 		self.source_parameter_queue = [[multiprocessing.Queue() for i in range(num_chains)] for index in range(self.num_sources)]
-        self.target_parameter_queue = [multiprocessing.Queue() for i in range(num_chains)]
-        self.source_chain_queue = [multiprocessing.JoinableQueue() for index in range(num_sources)]
-        self.target_chain_queue = multiprocessing.JoinableQueue()
+		self.target_parameter_queue = [multiprocessing.Queue() for i in range(num_chains)]
+		self.source_chain_queue = [multiprocessing.JoinableQueue() for index in range(num_sources)]
+		self.target_chain_queue = multiprocessing.JoinableQueue()
 		self.source_wait_chain = [[multiprocessing.Event() for i in range (self.num_chains)] for index in range(self.num_sources)]
-        self.target_wait_chain = [multiprocessing.Event() for i in range (self.num_chains)]
+		self.target_wait_chain = [multiprocessing.Event() for i in range (self.num_chains)]
 		self.source_event = [[multiprocessing.Event() for i in range (self.num_chains)] for index in range(self.num_sources)]
-        self.target_event = [multiprocessing.Event() for i in range (self.num_chains)]
+		self.target_event = [multiprocessing.Event() for i in range (self.num_chains)]
 
-        self.wsize = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
-        self.createPTtasks()
-        self.wsize_target = (self.targetTop[0] * self.targetTop[1]) + (self.targetTop[1] * self.targetTop[2]) + self.targetTop[1] + self.targetTop[2]
+		self.wsize = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
+		self.createPTtasks()
+		self.wsize_target = (self.targetTop[0] * self.targetTop[1]) + (self.targetTop[1] * self.targetTop[2]) + self.targetTop[1] + self.targetTop[2]
 
-    @staticmethod
-    def default_beta_ladder(self, ndim, ntemps, Tmax): #https://github.com/konqr/ptemcee/blob/master/ptemcee/sampler.py
+	@staticmethod
+	def default_beta_ladder(self, ndim, ntemps, Tmax): #https://github.com/konqr/ptemcee/blob/master/ptemcee/sampler.py
 		"""
 		Returns a ladder of :math:`\beta \equiv 1/T` under a geometric spacing that is determined by the
 		arguments ``ntemps`` and ``Tmax``.  The temperature selection algorithm works as follows:
@@ -480,7 +480,7 @@ class ParallelTemperingTL(object):
 		return betas
 
 
-    def assign_temperatures(self):
+	def assign_temperatures(self):
 		# #Linear Spacing
 		# temp = 2
 		# for i in range(0,self.num_chains):
@@ -492,19 +492,19 @@ class ParallelTemperingTL(object):
 		self.temperatures = [np.inf if beta == 0 else 1.0/beta for beta in betas]
 
 
-    def initialize_chains(self, burn_in):
+	def initialize_chains(self, burn_in):
 		self.burn_in = burn_in
 		self.assign_temperatures()
 		w = np.random.randn(self.num_param)
 
-        for s_index in range(self.num_sources):
-            for c_index in range(0, self.num_chains):
-			    self.chains.append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
+		for s_index in range(self.num_sources):
+			for c_index in range(0, self.num_chains):
+				self.chains.append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
 
 		for c_index in range(0, self.num_chains):
 			self.chains.append(ptReplica(w, self.num_samples, self.target_train_data, self.target_test_data, self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'target', self.target_parameter_queue[c_index], self.target_wait_chain[c_index], self.target_event[c_index]))
 
-    def swap_procedure(self, parameter_queue_1, parameter_queue_2):
+	def swap_procedure(self, parameter_queue_1, parameter_queue_2):
 		if parameter_queue_2.empty() is False and parameter_queue_1.empty() is False:
 			param1 = parameter_queue_1.get()
 			param2 = parameter_queue_2.get()
@@ -533,7 +533,7 @@ class ParallelTemperingTL(object):
 			self.total_swap_proposals += 1
 			return
 
-    def run_chains(self):
+	def run_chains(self):
 		x_test = np.linspace(0,1,num=self.testdata.shape[0])
 		x_train = np.linspace(0,1,num=self.traindata.shape[0])
 		# only adjacent chains can be swapped therefore, the number of proposals is ONE less num_chains
@@ -548,61 +548,61 @@ class ParallelTemperingTL(object):
 		number_exchange = np.zeros(self.num_chains)
 		filen = open(self.directory + '/num_exchange.txt', 'a')
 
-        #RUN MCMC CHAINS
-        for index in range(self.num_sources):
-            for l in range(0,self.num_chains):
-			    self.source_chains[index][l].start_chain = start
-			    self.source_chains[index][l].end = end
+		#RUN MCMC CHAINS
+		for index in range(self.num_sources):
+			for l in range(0,self.num_chains):
+				self.source_chains[index][l].start_chain = start
+				self.source_chains[index][l].end = end
 
-        for l in range(self.num_chains):
-            self.target_chains[l].start_chain = start
-            self.target_chains[l].end = end
+		for l in range(self.num_chains):
+			self.target_chains[l].start_chain = start
+			self.target_chains[l].end = end
 
-        for index in range(self.num_sources):
-		    for j in range(0,self.num_chains):
-                self.source_chains[index][j].start()
+		for index in range(self.num_sources):
+			for j in range(0,self.num_chains):
+				self.source_chains[index][j].start()
 
-        for j in range(self.num_chains):
-            self.target_chains[j].start()
+		for j in range(self.num_chains):
+			self.target_chains[j].start()
 
 		#SWAP PROCEDURE
 		#chain_num = 0
 		while True:
-            for index in range(self.num_sources):
-                for k in range(0,self.num_chains):
-                    self.source_wait_chain[index][k].wait()
+			for index in range(self.num_sources):
+				for k in range(0,self.num_chains):
+					self.source_wait_chain[index][k].wait()
 
-    			for k in range(0,self.num_chains-1):
-    				#print('starting swap')
-    				self.source_chain_queue[index].put(self.swap_procedure(self.source_parameter_queue[index][k], self.source_parameter_queue[index][k+1]))
+				for k in range(0,self.num_chains-1):
+					#print('starting swap')
+					self.source_chain_queue[index].put(self.swap_procedure(self.source_parameter_queue[index][k], self.source_parameter_queue[index][k+1]))
 
-                    while True:
-    					if self.source_chain_queue[index].empty():
-    						self.source_chain_queue[index].task_done()
-    						#print(k,'EMPTY QUEUE')
-    						break
-    					swap_process = self.source_chain_queue[index].get()
-    					#print(swap_process)
-    					if swap_process is None:
-    						self.source_chain_queue[index].task_done()
-    						#print(k,'No Process')
-    						break
-    					param1, param2 = swap_process
+					while True:
+						if self.source_chain_queue[index].empty():
+							self.source_chain_queue[index].task_done()
+							#print(k,'EMPTY QUEUE')
+							break
+						swap_process = self.source_chain_queue[index].get()
+						#print(swap_process)
+						if swap_process is None:
+							self.source_chain_queue[index].task_done()
+							#print(k,'No Process')
+							break
+						param1, param2 = swap_process
 
-    					self.source_parameter_queue[index][k].put(param1)
-    					self.source_parameter_queue[index][k+1].put(param2)
+						self.source_parameter_queue[index][k].put(param1)
+						self.source_parameter_queue[index][k+1].put(param2)
 
-                for k in range (self.num_chains):
-    					self.source_event[index][k].set()
+				for k in range (self.num_chains):
+						self.source_event[index][k].set()
 
-            for k in range(0,self.num_chains):
-                self.target_wait_chain[k].wait()
+			for k in range(0,self.num_chains):
+				self.target_wait_chain[k].wait()
 
 			for k in range(0,self.num_chains-1):
 				#print('starting swap')
 				self.target_chain_queue[index].put(self.swap_procedure(self.target_parameter_queue[k], self.target_parameter_queue[k+1]))
 
-                while True:
+				while True:
 					if self.target_chain_queue.empty():
 						self.target_chain_queue.task_done()
 						#print(k,'EMPTY QUEUE')
@@ -621,26 +621,26 @@ class ParallelTemperingTL(object):
 					self.target_event[k].set()
 
 			count = 0
-            for index in range(self.num_sources):
-                for i in range(self.num_chains):
-                    if self.source_chains[index][i].is_alive() is False:
-                        count += 1
-            for i in range(self.num_chains):
-                if self.target_chains[i].is_alive() is False:
+			for index in range(self.num_sources):
+				for i in range(self.num_chains):
+					if self.source_chains[index][i].is_alive() is False:
+						count += 1
+			for i in range(self.num_chains):
+				if self.target_chains[i].is_alive() is False:
 					count += 1
 			if count == (self.num_sources + 1)*self.num_chains :
 				#print(count)
 				break
 
 		#JOIN THEM TO MAIN PROCESS
-        for index in range(self.num_sources):
-            for j in range(0,self.num_chains):
-			    self.source_chains[index][j].join()
-        for j in range(self.num_chains):
-            self.target_chains[j].join()
-        for index in range(self.num_sources):
-            self.source_chain_queue[index].join()
-        self.target_chain_queue[index].join()
+		for index in range(self.num_sources):
+			for j in range(0,self.num_chains):
+				self.source_chains[index][j].join()
+		for j in range(self.num_chains):
+			self.target_chains[j].join()
+		for index in range(self.num_sources):
+			self.source_chain_queue[index].join()
+		self.target_chain_queue[index].join()
 
 		#GETTING DATA
 		burnin = int(self.num_samples*self.burn_in)
@@ -691,45 +691,45 @@ class ParallelTemperingTL(object):
 
 
 
-		pos_w = pos_w.transpose(2,0,1).reshape(self.num_param,-1)
-		accept_total = np.sum(accept_ratio)/self.num_chains
-		fx_train = fxtrain_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.traindata.shape[0])
-		rmse_train = rmse_train.reshape(self.num_chains*(self.NumSamples - burnin), 1)
-		fx_test = fxtest_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.testdata.shape[0])
-		rmse_test = rmse_test.reshape(self.num_chains*(self.NumSamples - burnin), 1)
-		for s in range(self.num_param):
-			self.plot_figure(pos_w[s,:], 'pos_distri_'+str(s))
+		# pos_w = pos_w.transpose(2,0,1).reshape(self.num_param,-1)
+		# accept_total = np.sum(accept_ratio)/self.num_chains
+		# fx_train = fxtrain_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.traindata.shape[0])
+		# rmse_train = rmse_train.reshape(self.num_chains*(self.NumSamples - burnin), 1)
+		# fx_test = fxtest_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.testdata.shape[0])
+		# rmse_test = rmse_test.reshape(self.num_chains*(self.NumSamples - burnin), 1)
+		# for s in range(self.num_param):
+		# 	self.plot_figure(pos_w[s,:], 'pos_distri_'+str(s))
 		print("NUMBER OF SWAPS =", self.num_swap)
 		print("SWAP ACCEPTANCE = ", self.num_swap*100/self.total_swap_proposals," %")
-		return (pos_w, fx_train, fx_test, x_train, x_test, rmse_train, rmse_test, accept_total)
+		# return (pos_w, fx_train, fx_test, x_train, x_test, rmse_train, rmse_test, accept_total)
 
 
 
 
 
 
-    # def createPTtasks(self):
-    #     self.sources = []
-    #     NumSample = 500
+	# def createPTtasks(self):
+	#     self.sources = []
+	#     NumSample = 500
 	# 	maxtemp = 20
 	# 	swap_ratio = 0.125
 	# 	num_chains = 10
 	# 	burn_in = 0.2
-    #     swap_interval =  int(swap_ratio * (NumSample/num_chains))
-    #     for index in range(self.numSources):
-    #         path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
-    # 		make_directory(path)
-    #         self.sources.append(ParallelTempering(self.traindata[index], self.testdata[index], self.topology, num_chains, maxtemp, NumSample, swap_interval, path))
-    #     self.targetTop = self.topology.copy()
-    #     self.targetTop[1] = int(1.0 * self.topology[1])
-    #     path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
-    #     make_directory(path)
-    #     self.target = ParallelTempering(self.targettraindata, self.targettestdata, self.targetTop, num_chains, maxtemp, NumSample, swap_interval, path)
-    #
-    # def init_chains(self, burn_in=0.2):
-    #     for index in range(self.numSources):
-    #         self.sources.initialize_chains(burn_in)
-    #     self.target.initialize_chains(burn_in)
+	#     swap_interval =  int(swap_ratio * (NumSample/num_chains))
+	#     for index in range(self.numSources):
+	#         path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
+	# 		make_directory(path)
+	#         self.sources.append(ParallelTempering(self.traindata[index], self.testdata[index], self.topology, num_chains, maxtemp, NumSample, swap_interval, path))
+	#     self.targetTop = self.topology.copy()
+	#     self.targetTop[1] = int(1.0 * self.topology[1])
+	#     path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
+	#     make_directory(path)
+	#     self.target = ParallelTempering(self.targettraindata, self.targettestdata, self.targetTop, num_chains, maxtemp, NumSample, swap_interval, path)
+	#
+	# def init_chains(self, burn_in=0.2):
+	#     for index in range(self.numSources):
+	#         self.sources.initialize_chains(burn_in)
+	#     self.target.initialize_chains(burn_in)
 
 
 
@@ -738,7 +738,7 @@ def make_directory (directory):
 		os.makedirs(directory)
 
 def main():
-    pass
+	pass
 # 	resultingfile = open('RESULTS/master_result_file.txt','a+')
 # 	for i in range(1,3):
 # 		problem =	2
