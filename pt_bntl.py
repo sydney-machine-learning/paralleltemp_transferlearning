@@ -167,7 +167,7 @@ class ptReplica(multiprocessing.Process):
 		#PARALLEL TEMPERING VARIABLES
 		self.temperature = temperature
 		self.swap_interval = swap_interval
-		self.path = path
+		self.directory = path
 		self.burn_in = burn_in
 		#FNN CHAIN VARIABLES (MCMC)
 		self.samples = samples
@@ -246,7 +246,7 @@ class ptReplica(multiprocessing.Process):
 		#Beginning Sampling using MCMC RANDOMWALK
 		plt.plot(x_train, y_train)
 
-		accept_list = open(self.path+'/acceptlist_'+str(self.temperature)+'.txt', "a+")
+		accept_list = open(self.directory+'/acceptlist_'+str(self.temperature)+'.txt', "a+")
 
 
 		for i in range(samples - 1):
@@ -321,32 +321,28 @@ class ptReplica(multiprocessing.Process):
 		param = np.concatenate([w, np.asarray([eta]).reshape(1), np.asarray([likelihood]),np.asarray([self.temperature])])
 		#print('SWAPPED PARAM',self.temperature,param)
 		self.parameter_queue.put(param)
-		make_directory(self.path+'/results')
-		make_directory(self.path+'/posterior')
+		make_directory(self.directory+'/results')
+		make_directory(self.directory+'/posterior')
 		print ((naccept*100 / (samples * 1.0)), '% was accepted')
 		accept_ratio = naccept / (samples * 1.0) * 100
 		# plt.title("Plot of Accepted Proposals")
-		# plt.savefig(self.path+'/results/proposals.png')
+		# plt.savefig(self.directory+'/results/proposals.png')
 		# plt.clf()
 		#SAVING PARAMETERS
-		file_name = self.path+'/posterior/pos_w_chain_'+ str(self.temperature)+ '.txt'
+		file_name = self.directory+'/posterior/pos_w_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name,pos_w )
-		file_name = self.path+'/posterior/fxtrain_samples_chain_'+ str(self.temperature)+ '.txt'
+		file_name = self.directory+'/posterior/fxtrain_samples_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name, fxtrain_samples, fmt='%1.2f')
-		file_name = self.path+'/posterior/fxtest_samples_chain_'+ str(self.temperature)+ '.txt'
+		file_name = self.directory+'/posterior/fxtest_samples_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name, fxtest_samples, fmt='%1.2f')
-		file_name = self.path+'/posterior/rmse_test_chain_'+ str(self.temperature)+ '.txt'
+		file_name = self.directory+'/posterior/rmse_test_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name, rmse_test, fmt='%1.2f')
-		file_name = self.path+'/posterior/rmse_train_chain_'+ str(self.temperature)+ '.txt'
+		file_name = self.directory+'/posterior/rmse_train_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name, rmse_train, fmt='%1.2f')
-		file_name = self.path + '/posterior/accept_list_chain_' + str(self.temperature) + '_accept.txt'
+		file_name = self.directory + '/posterior/accept_list_chain_' + str(self.temperature) + '_accept.txt'
 		np.savetxt(file_name, [accept_ratio], fmt='%1.2f')
 
 		self.signal_main.set()
-
-
-
-
 
 
 # Parallel tempering Bayesian Neural transfer Learning Class
@@ -503,8 +499,10 @@ class ParallelTemperingTL(object):
 
         for s_index in range(self.num_sources):
             for c_index in range(0, self.num_chains):
-			    self.chains.append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.path, self.parameter_queue[s_index][c_index], self.wait_chain[s_index][c_index], self.event[s_index][c_index]))
+			    self.chains.append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
 
+		for c_index in range(0, self.num_chains):
+			self.chains.append(ptReplica(w, self.num_samples, self.target_train_data, self.target_test_data, self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'target', self.target_parameter_queue[c_index], self.target_wait_chain[c_index], self.target_event[c_index]))
 
     def swap_procedure(self, parameter_queue_1, parameter_queue_2):
 		if parameter_queue_2.empty() is False and parameter_queue_1.empty() is False:
@@ -548,8 +546,7 @@ class ParallelTemperingTL(object):
 		start = 0
 		end = self.num_samples-1
 		number_exchange = np.zeros(self.num_chains)
-		filen = open(self.path + '/num_exchange.txt', 'a')
-
+		filen = open(self.directory + '/num_exchange.txt', 'a')
 
         #RUN MCMC CHAINS
         for index in range(self.num_sources):
@@ -594,7 +591,8 @@ class ParallelTemperingTL(object):
 
     					self.source_parameter_queue[index][k].put(param1)
     					self.source_parameter_queue[index][k+1].put(param2)
-    			for k in range (self.num_chains):
+
+                for k in range (self.num_chains):
     					self.source_event[index][k].set()
 
             for k in range(0,self.num_chains):
@@ -621,6 +619,7 @@ class ParallelTemperingTL(object):
 					self.target_parameter_queue[k+1].put(param2)
 			for k in range (self.num_chains):
 					self.target_event[k].set()
+
 			count = 0
             for index in range(self.num_sources):
                 for i in range(self.num_chains):
@@ -633,39 +632,64 @@ class ParallelTemperingTL(object):
 				#print(count)
 				break
 
-
 		#JOIN THEM TO MAIN PROCESS
-		for j in range(0,self.num_chains):
-			self.chains[j].join()
-		self.chain_queue.join()
-		#GETTING DATA
-		burnin = int(self.NumSamples*self.burn_in)
-		pos_w = np.zeros((self.num_chains,self.NumSamples - burnin, self.num_param))
-		fxtrain_samples = np.zeros((self.num_chains,self.NumSamples - burnin, self.traindata.shape[0]))
-		rmse_train = np.zeros((self.num_chains,self.NumSamples - burnin))
-		fxtest_samples = np.zeros((self.num_chains,self.NumSamples - burnin, self.testdata.shape[0]))
-		rmse_test = np.zeros((self.num_chains,self.NumSamples - burnin))
-		accept_ratio = np.zeros((self.num_chains,1))
+        for index in range(self.num_sources):
+            for j in range(0,self.num_chains):
+			    self.source_chains[index][j].join()
+        for j in range(self.num_chains):
+            self.target_chains[j].join()
+        for index in range(self.num_sources):
+            self.source_chain_queue[index].join()
+        self.target_chain_queue[index].join()
 
-		for i in range(self.num_chains):
-			file_name = self.path+'/posterior/pos_w_chain_'+ str(self.temperatures[i])+ '.txt'
+		#GETTING DATA
+		burnin = int(self.num_samples*self.burn_in)
+		source_pos_w = np.zeros((self.num_sources, self.num_chains,self.num_samples - burnin, self.num_param))
+		target_pos_w = np.zeros((self.num_chains, self.num_samples - burnin, self.num_param))
+		# fxtrain_samples = np.zeros((self.num_chains,self.num_samples - burnin, self.train_data.shape[0]))
+		source_rmse_train = np.zeros((self.num_sources, self.num_chains, self.num_samples - burnin))
+		target_rmse_train = np.zeros((self.num_chains, self.num_samples - burnin))
+		source_rmse_test = np.zeros((self.num_sources, self.num_chains, self.num_samples - burnin))
+		target_rmse_test = np.zeros((self.num_chains, self.num_samples - burnin))
+		source_accept_ratio = np.zeros((self.num_sources, self.num_chains, 1))
+		target_accept_ratio = np.zeros((self.num_chains, 1))
+
+		for s_index in range(self.num_sources):
+			for c_index in range(self.num_chains):
+				file_name = self.directory+'/source_'+str(s_index)+'/posterior/pos_w_chain_'+ str(self.temperatures[c_index])+ '.txt'
+				dat = np.loadtxt(file_name)
+				source_pos_w[s_index, c_index, :, :] = dat[burnin:,:]
+
+				file_name = sself.directory+'/source_'+str(s_index)+'/posterior/rmse_test_chain_'+ str(self.temperatures[c_index])+ '.txt'
+				dat = np.loadtxt(file_name)
+				source_rmse_test[s_index, c_index, :] = dat[burnin:]
+
+				file_name = self.directory+'/source_'+str(s_index)+'/posterior/rmse_train_chain_'+ str(self.temperatures[c_index])+ '.txt'
+				dat = np.loadtxt(file_name)
+				source_rmse_train[s_index, c_index, :] = dat[burnin:]
+
+				file_name = self.directory+'/source_'+str(s_index)+ '/posterior/accept_list_chain_' + str(self.temperatures[c_index]) + '_accept.txt'
+				dat = np.loadtxt(file_name)
+				source_accept_ratio[s_index, c_index, :] = dat
+
+		for c_index in range(self.num_chains):
+			file_name = self.directory+'/target'+'/posterior/pos_w_chain_'+ str(self.temperatures[c_index])+ '.txt'
 			dat = np.loadtxt(file_name)
-			pos_w[i,:,:] = dat[burnin:,:]
-			file_name = self.path+'/posterior/fxtrain_samples_chain_'+ str(self.temperatures[i])+ '.txt'
+			target_pos_w[c_index, :, :] = dat[burnin:,:]
+
+			file_name = sself.directory+'/target'+'/posterior/rmse_test_chain_'+ str(self.temperatures[c_index])+ '.txt'
 			dat = np.loadtxt(file_name)
-			fxtrain_samples[i,:,:] = dat[burnin:,:]
-			file_name = self.path+'/posterior/fxtest_samples_chain_'+ str(self.temperatures[i])+ '.txt'
+			target_rmse_test[c_index, :] = dat[burnin:]
+
+			file_name = self.directory+'/target'+'/posterior/rmse_train_chain_'+ str(self.temperatures[c_index])+ '.txt'
 			dat = np.loadtxt(file_name)
-			fxtest_samples[i,:,:] = dat[burnin:,:]
-			file_name = self.path+'/posterior/rmse_test_chain_'+ str(self.temperatures[i])+ '.txt'
+			target_rmse_train[c_index, :] = dat[burnin:]
+
+			file_name = self.directory+'/target'+ '/posterior/accept_list_chain_' + str(self.temperatures[c_index]) + '_accept.txt'
 			dat = np.loadtxt(file_name)
-			rmse_test[i,:] = dat[burnin:]
-			file_name = self.path+'/posterior/rmse_train_chain_'+ str(self.temperatures[i])+ '.txt'
-			dat = np.loadtxt(file_name)
-			rmse_train[i,:] = dat[burnin:]
-			file_name = self.path + '/posterior/accept_list_chain_' + str(self.temperatures[i]) + '_accept.txt'
-			dat = np.loadtxt(file_name)
-			accept_ratio[i,:] = dat
+			target_accept_ratio[c_index, :] = dat
+
+
 
 		pos_w = pos_w.transpose(2,0,1).reshape(self.num_param,-1)
 		accept_total = np.sum(accept_ratio)/self.num_chains
@@ -709,52 +733,9 @@ class ParallelTemperingTL(object):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def make_directory (directory):
 	if not os.path.exists(directory):
 		os.makedirs(directory)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 def main():
     pass
