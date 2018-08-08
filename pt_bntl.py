@@ -735,7 +735,7 @@ def main():
 	problemtype = type[problem]
 	topology = [input[problem], hidden[problem], output[problem]]
 	problem_name = name[problem]
-	max_temp = 2
+	max_temp = 20
 	swap_ratio = 0.125
 	num_chains = 10
 	burn_in = 0.2
