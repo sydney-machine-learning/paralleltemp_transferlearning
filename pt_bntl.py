@@ -774,9 +774,9 @@ def main():
 	pt.initialize_chains(burn_in)
 
 	pt.run_chains()
-
-	print ('Successfully Regressed')
-	print (accept_total, '% total accepted')
+	#
+	# print ('Successfully Regressed')
+	# print (accept_total, '% total accepted')
 
 	timer2 = time.time()
 	print ((timer2 - timer), 'sec time taken')
