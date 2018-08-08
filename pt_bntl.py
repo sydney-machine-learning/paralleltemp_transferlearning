@@ -725,7 +725,7 @@ def main():
 	output = [10, 2, 1, 1]
 	num_sources = [1, 1, 1, 5]
 	type = {0:'classification', 1:'regression', 2:'regression', 3:'regression'}
-	num_samples = [800, 1000, 400, 800]
+	num_samples = [800, 100, 400, 800]
 
 	#################################
 	##	THESE ARE THE PARAMETERS   ##
