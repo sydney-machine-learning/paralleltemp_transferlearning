@@ -255,7 +255,7 @@ class ptReplica(multiprocessing.Process):
 
 
 		for i in range(samples - 1):
-			print('temperature: ', self.temperature, ' sample: ', i)
+			# print('temperature: ', self.temperature, ' sample: ', i)
 			#GENERATING SAMPLE
 			w_proposal = np.random.normal(w, step_w, w_size) # Eq 7
 
@@ -333,10 +333,10 @@ class ptReplica(multiprocessing.Process):
 		#SAVING PARAMETERS
 		file_name = self.directory+'/posterior/pos_w_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name,pos_w )
-		file_name = self.directory+'/posterior/fxtrain_samples_chain_'+ str(self.temperature)+ '.txt'
-		np.savetxt(file_name, fxtrain_samples, fmt='%.2f')
-		file_name = self.directory+'/posterior/fxtest_samples_chain_'+ str(self.temperature)+ '.txt'
-		np.savetxt(file_name, fxtest_samples, fmt='%.2f')
+		# file_name = self.directory+'/posterior/fxtrain_samples_chain_'+ str(self.temperature)+ '.txt'
+		# np.savetxt(file_name, fxtrain_samples, fmt='%.2f')
+		# file_name = self.directory+'/posterior/fxtest_samples_chain_'+ str(self.temperature)+ '.txt'
+		# np.savetxt(file_name, fxtest_samples, fmt='%.2f')
 		file_name = self.directory+'/posterior/rmse_test_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name, rmse_test, fmt='%.2f')
 		file_name = self.directory+'/posterior/rmse_train_chain_'+ str(self.temperature)+ '.txt'
@@ -524,7 +524,7 @@ class ParallelTemperingTL(object):
 			T2 = param2[self.num_param+2]
 			#SWAPPING PROBABILITIES
 			try:
-				swap_proposal =  min(1,0.5*np.exp(lhood2 - lhood1))
+				swap_proposal =  min(1,0.5*np.exp(min(709,lhood2 - lhood1)))
 			except OverflowError:
 				swap_proposal = 1
 			u = np.random.uniform(0,1)
@@ -666,7 +666,7 @@ class ParallelTemperingTL(object):
 				dat = np.loadtxt(file_name)
 				source_pos_w[s_index, c_index, :, :] = dat[burnin:,:]
 
-				file_name = sself.directory+'/source_'+str(s_index)+'/posterior/rmse_test_chain_'+ str(self.temperatures[c_index])+ '.txt'
+				file_name = self.directory+'/source_'+str(s_index)+'/posterior/rmse_test_chain_'+ str(self.temperatures[c_index])+ '.txt'
 				dat = np.loadtxt(file_name)
 				source_rmse_test[s_index, c_index, :] = dat[burnin:]
 
