@@ -646,7 +646,7 @@ class ParallelTemperingTL(object):
 			self.target_chains[j].join()
 		for index in range(self.num_sources):
 			self.source_chain_queue[index].join()
-		self.target_chain_queue[index].join()
+		self.target_chain_queue.join()
 
 		#GETTING DATA
 		burnin = int(self.num_samples*self.burn_in)
