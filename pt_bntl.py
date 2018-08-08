@@ -683,7 +683,7 @@ class ParallelTemperingTL(object):
 			dat = np.loadtxt(file_name)
 			target_pos_w[c_index, :, :] = dat[burnin:,:]
 
-			file_name = sself.directory+'/target'+'/posterior/rmse_test_chain_'+ str(self.temperatures[c_index])+ '.txt'
+			file_name = self.directory+'/target'+'/posterior/rmse_test_chain_'+ str(self.temperatures[c_index])+ '.txt'
 			dat = np.loadtxt(file_name)
 			target_rmse_test[c_index, :] = dat[burnin:]
 
