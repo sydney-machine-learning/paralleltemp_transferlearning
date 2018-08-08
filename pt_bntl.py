@@ -700,7 +700,9 @@ class ParallelTemperingTL(object):
 		# pos_w = pos_w.transpose(2,0,1).reshape(self.num_param,-1)
 		# accept_total = np.sum(accept_ratio)/self.num_chains
 		# fx_train = fxtrain_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.traindata.shape[0])
-		# rmse_train = rmse_train.reshape(self.num_chains*(self.NumSamples - burnin), 1)
+		source_rmse_train = source_rmse_train[0].reshape(self.num_chains*(self.num_samples - burnin), 1)
+		plt.plot(source_rmse_train.shape[0], source_rmse_train)
+		plt.show()
 		# fx_test = fxtest_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.testdata.shape[0])
 		# rmse_test = rmse_test.reshape(self.num_chains*(self.NumSamples - burnin), 1)
 		# for s in range(self.num_param):
