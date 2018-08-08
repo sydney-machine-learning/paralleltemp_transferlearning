@@ -334,15 +334,15 @@ class ptReplica(multiprocessing.Process):
 		file_name = self.directory+'/posterior/pos_w_chain_'+ str(self.temperature)+ '.txt'
 		np.savetxt(file_name,pos_w )
 		file_name = self.directory+'/posterior/fxtrain_samples_chain_'+ str(self.temperature)+ '.txt'
-		np.savetxt(file_name, fxtrain_samples, fmt='%1.2f')
+		np.savetxt(file_name, fxtrain_samples, fmt='%.2f')
 		file_name = self.directory+'/posterior/fxtest_samples_chain_'+ str(self.temperature)+ '.txt'
-		np.savetxt(file_name, fxtest_samples, fmt='%1.2f')
+		np.savetxt(file_name, fxtest_samples, fmt='%.2f')
 		file_name = self.directory+'/posterior/rmse_test_chain_'+ str(self.temperature)+ '.txt'
-		np.savetxt(file_name, rmse_test, fmt='%1.2f')
+		np.savetxt(file_name, rmse_test, fmt='%.2f')
 		file_name = self.directory+'/posterior/rmse_train_chain_'+ str(self.temperature)+ '.txt'
-		np.savetxt(file_name, rmse_train, fmt='%1.2f')
+		np.savetxt(file_name, rmse_train, fmt='%.2f')
 		file_name = self.directory + '/posterior/accept_list_chain_' + str(self.temperature) + '_accept.txt'
-		np.savetxt(file_name, [accept_ratio], fmt='%1.2f')
+		np.savetxt(file_name, [accept_ratio], fmt='%.2f')
 
 		self.signal_main.set()
 
