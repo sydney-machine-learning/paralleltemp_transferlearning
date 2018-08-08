@@ -1,3 +1,4 @@
+
 """ Feed Forward Network with Parallel Tempering for Multi-Core Systems"""
 
 from __future__ import print_function, division
@@ -164,7 +165,7 @@ class Network(object):
 
 class ptReplica(multiprocessing.Process):
 
-	def __init__(self, w, samples, traindata, testdata, topology, burn_in, temperature, swap_interval, path, parameter_queue, main_process,event):
+	def __init__(self, name, w, samples, traindata, testdata, topology, burn_in, temperature, swap_interval, path, parameter_queue, main_process,event):
 		#MULTIPROCESSING VARIABLES
 		multiprocessing.Process.__init__(self)
 		self.processID = temperature
@@ -182,6 +183,7 @@ class ptReplica(multiprocessing.Process):
 		self.traindata = traindata
 		self.testdata = testdata
 		self.w = w
+		self.name = name
 
 	def rmse(self, pred, actual):
 		return np.sqrt(((pred-actual)**2).mean())
@@ -255,7 +257,7 @@ class ptReplica(multiprocessing.Process):
 
 
 		for i in range(samples - 1):
-			# print('temperature: ', self.temperature, ' sample: ', i)
+			print('{} temperature: {:.2} sample: {}'.format(self.name, self.temperature, i))
 			#GENERATING SAMPLE
 			w_proposal = np.random.normal(w, step_w, w_size) # Eq 7
 
@@ -502,13 +504,14 @@ class ParallelTemperingTL(object):
 		w = np.random.randn(self.num_param)
 
 		for s_index in range(self.num_sources):
+			name = 'source_'+str(s_index)
 			make_directory(self.directory+'/source_'+str(s_index))
 			for c_index in range(0, self.num_chains):
-				self.source_chains[s_index].append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
-
+				self.source_chains[s_index].append(ptReplica(name, w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
+		name = 'target'
 		make_directory(self.directory+'/target')
 		for c_index in range(0, self.num_chains):
-			self.target_chains.append(ptReplica(w, self.num_samples, self.target_train_data, self.target_test_data, self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/target', self.target_parameter_queue[c_index], self.target_wait_chain[c_index], self.target_event[c_index]))
+			self.target_chains.append(ptReplica(name, w, self.num_samples, self.target_train_data, self.target_test_data, self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/target', self.target_parameter_queue[c_index], self.target_wait_chain[c_index], self.target_event[c_index]))
 
 	def swap_procedure(self, parameter_queue_1, parameter_queue_2):
 		if parameter_queue_2.empty() is False and parameter_queue_1.empty() is False:
@@ -700,9 +703,11 @@ class ParallelTemperingTL(object):
 		# pos_w = pos_w.transpose(2,0,1).reshape(self.num_param,-1)
 		# accept_total = np.sum(accept_ratio)/self.num_chains
 		# fx_train = fxtrain_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.traindata.shape[0])
-		source_rmse_train = source_rmse_train[0].reshape(self.num_chains*(self.num_samples - burnin), 1)
-		plt.plot(source_rmse_train.shape[0], source_rmse_train)
-		plt.show()
+		source_rmse_tr = source_rmse_train[0].reshape(self.num_chains*(self.num_samples - burnin), )
+		source_rmse_tes = source_rmse_test[0].reshape(self.num_chains*(self.num_samples - burnin), )
+		plt.plot(np.linspace(0,1,source_rmse_tr.shape[0]), source_rmse_tr, label='train')
+		plt.plot(np.linspace(0,1,source_rmse_tes.shape[0]), source_rmse_tes, label='test')
+		plt.savefig('figure.png')
 		# fx_test = fxtest_samples.reshape(self.num_chains*(self.NumSamples - burnin), self.testdata.shape[0])
 		# rmse_test = rmse_test.reshape(self.num_chains*(self.NumSamples - burnin), 1)
 		# for s in range(self.num_param):
@@ -727,7 +732,7 @@ def main():
 	output = [10, 2, 1, 1]
 	num_sources = [1, 1, 1, 5]
 	type = {0:'classification', 1:'regression', 2:'regression', 3:'regression'}
-	num_samples = [800, 100, 400, 800]
+	num_samples = [800, 1000, 400, 800]
 
 	#################################
 	##	THESE ARE THE PARAMETERS   ##
