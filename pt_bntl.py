@@ -38,13 +38,20 @@ class Network(object):
 		self.hidout = np.zeros((1, self.Top[1]))  # output of first hidden layer
 		self.out = np.zeros((1, self.Top[2]))  # output last layer
 
-	def sigmoid(self, x):
+	@staticmethod
+	def sigmoid(x):
+		x = x.astype(np.float128)
 		return 1 / (1 + np.exp(-x))
 
 	def sampleEr(self, actualout):
 		error = np.subtract(self.out, actualout)
 		sqerror = np.sum(np.square(error)) / self.Top[2]
 		return sqerror
+
+	def sampleAD(self, actualout):
+		error = np.subtract(self.out, actualout)
+		moderror = np.sum(np.abs(error)) / self.Top[2]
+		return moderror
 
 	def ForwardPass(self, X):
 		z1 = X.dot(self.W1) - self.B1
@@ -146,7 +153,7 @@ class Network(object):
 
 		Input = np.zeros((1, self.Top[0]))  # temp hold input
 		Desired = np.zeros((1, self.Top[2]))
-		fx = np.zeros(size)
+		fx = np.zeros((size, self.Top[2]))
 
 		for i in range(0, size):  # to see what fx is produced by your current weight update
 			Input = data[i, 0:self.Top[0]]
@@ -180,7 +187,7 @@ class ptReplica(multiprocessing.Process):
 		return np.sqrt(((pred-actual)**2).mean())
 
 	def likelihood_func(self, fnn, data, w, tau_sq):
-		y = data[:, self.topology[0]]
+		y = data[:, self.topology[0]:]
 		fx = fnn.evaluate_proposal(data,w)
 		rmse = self.rmse(fx, y)
 		loss = np.sum(-0.5*np.log(2*math.pi*tau_sq) - 0.5*np.square(y-fx)/tau_sq)
@@ -203,15 +210,15 @@ class ptReplica(multiprocessing.Process):
 		x_test = np.linspace(0,1,num=testsize)
 		x_train = np.linspace(0,1,num=trainsize)
 		netw = self.topology
-		y_test = self.testdata[:,netw[0]]
-		y_train = self.traindata[:,netw[0]]
+		y_test = self.testdata[:,netw[0]:]
+		y_train = self.traindata[:,netw[0]:]
 
 		w_size = (netw[0] * netw[1]) + (netw[1] * netw[2]) + netw[1] + netw[2]  # num of weights and bias
 		pos_w = np.ones((samples, w_size)) #Posterior for all weights
 		pos_tau = np.ones((samples,1)) #Tau is the variance of difference in predicted and actual values
 
-		fxtrain_samples = np.ones((samples, trainsize)) #Output of regression FNN for training samples
-		fxtest_samples = np.ones((samples, testsize)) #Output of regression FNN for testing samples
+		fxtrain_samples = np.ones((samples, trainsize, netw[2])) #Output of regression FNN for training samples
+		fxtest_samples = np.ones((samples, testsize, netw[2])) #Output of regression FNN for testing samples
 		rmse_train  = np.zeros(samples)
 		rmse_test = np.zeros(samples)
 		learn_rate = 0.5
@@ -235,8 +242,6 @@ class ptReplica(multiprocessing.Process):
 		sigma_squared = 25
 		nu_1 = 0
 		nu_2 = 0
-		sigma_diagmat = np.zeros((w_size, w_size))  # for Equation 9 in Ref [Chandra_ICONIP2017]
-		np.fill_diagonal(sigma_diagmat, step_w)
 
 		delta_likelihood = 0.5 # an arbitrary position
 		prior_current = self.prior_likelihood(sigma_squared, nu_1, nu_2, w, tau_pro)  # takes care of the gradients
@@ -250,12 +255,9 @@ class ptReplica(multiprocessing.Process):
 
 
 		for i in range(samples - 1):
+			print('temperature: ', self.temperature, ' sample: ', i)
 			#GENERATING SAMPLE
-			#w_gd = fnn.langevin_gradient(self.traindata, w.copy(), self.sgd_depth) # Eq 8
 			w_proposal = np.random.normal(w, step_w, w_size) # Eq 7
-			#w_prop_gd = fnn.langevin_gradient(self.traindata, w_proposal.copy(), self.sgd_depth)
-
-			#diff_prop =  np.log(multivariate_normal.pdf(w, w_prop_gd, sigma_diagmat)  - np.log(multivariate_normal.pdf(w_proposal, w_gd, sigma_diagmat)))
 
 			eta_pro = eta + np.random.normal(0, step_eta, 1)
 			tau_pro = math.exp(eta_pro)
@@ -269,7 +271,7 @@ class ptReplica(multiprocessing.Process):
 			#ACCEPTANCE OF SAMPLE
 
 			try:
-				mh_prob = min(1, math.exp(diff_likelihood + diff_prior  ))
+				mh_prob = min(1, math.exp(min(709, diff_likelihood + diff_prior)))
 			except OverflowError:
 				mh_prob = 1
 
@@ -286,8 +288,8 @@ class ptReplica(multiprocessing.Process):
 				accept_list.write('{} {} {} {} {} {} {}\n'.format(self.temperature,naccept, i, rmsetrain, rmsetest, likelihood, diff_likelihood + diff_prior))
 				pos_w[i + 1,] = w_proposal
 				pos_tau[i + 1,] = tau_pro
-				fxtrain_samples[i + 1,] = pred_train
-				fxtest_samples[i + 1,] = pred_test
+				fxtrain_samples[i + 1, :] = pred_train
+				fxtest_samples[i + 1, :] = pred_test
 				rmse_train[i + 1,] = rmsetrain
 				rmse_test[i + 1,] = rmsetest
 				plt.plot(x_train, pred_train)
@@ -295,8 +297,8 @@ class ptReplica(multiprocessing.Process):
 				accept_list.write('{} x {} {} {} {} {}\n'.format(self.temperature, i, rmsetrain, rmsetest, likelihood, diff_likelihood + diff_prior))
 				pos_w[i + 1,] = pos_w[i,]
 				pos_tau[i + 1,] = pos_tau[i,]
-				fxtrain_samples[i + 1,] = fxtrain_samples[i,]
-				fxtest_samples[i + 1,] = fxtest_samples[i,]
+				fxtrain_samples[i + 1, :] = fxtrain_samples[i,]
+				fxtest_samples[i + 1, :] = fxtest_samples[i,]
 				rmse_train[i + 1,] = rmse_train[i,]
 				rmse_test[i + 1,] = rmse_test[i,]
 			#print('INITIAL W(PROP) BEFORE SWAP',self.temperature,w_proposal,i,rmsetrain)
@@ -365,18 +367,20 @@ class ParallelTemperingTL(object):
 		# Parallel Tempering Variables
 		self.swap_interval = swap_interval
 		self.max_temp = max_temp
-		self.num_swap = [0 for index in range(self.num_sources+1)]
-		self.total_swap_proposals = [0 for index in range(self.num_sources+1)]
+		# self.num_swap = [0 for index in range(self.num_sources+1)]
+		self.num_swap = 0
+		# self.total_swap_proposals = [0 for index in range(self.num_sources+1)]
+		self.total_swap_proposals = 0
 		self.num_chains = num_chains
 		self.source_chains = [list() for index in range(self.num_sources)]
 		self.target_chains = []
 		self.temperatures = []
-		self.num_samples = int(sample/self.num_chains)
+		self.num_samples = int(samples/self.num_chains)
 		self.sub_sample_size = max(1, int( 0.05* self.num_samples))
 		# create queues for transfer of parameters between process chain
 		self.source_parameter_queue = [[multiprocessing.Queue() for i in range(num_chains)] for index in range(self.num_sources)]
 		self.target_parameter_queue = [multiprocessing.Queue() for i in range(num_chains)]
-		self.source_chain_queue = [multiprocessing.JoinableQueue() for index in range(num_sources)]
+		self.source_chain_queue = [multiprocessing.JoinableQueue() for index in range(self.num_sources)]
 		self.target_chain_queue = multiprocessing.JoinableQueue()
 		self.source_wait_chain = [[multiprocessing.Event() for i in range (self.num_chains)] for index in range(self.num_sources)]
 		self.target_wait_chain = [multiprocessing.Event() for i in range (self.num_chains)]
@@ -384,11 +388,11 @@ class ParallelTemperingTL(object):
 		self.target_event = [multiprocessing.Event() for i in range (self.num_chains)]
 
 		self.wsize = (topology[0] * topology[1]) + (topology[1] * topology[2]) + topology[1] + topology[2]
-		self.createPTtasks()
+		self.targetTop = self.topology[:]
 		self.wsize_target = (self.targetTop[0] * self.targetTop[1]) + (self.targetTop[1] * self.targetTop[2]) + self.targetTop[1] + self.targetTop[2]
 
 	@staticmethod
-	def default_beta_ladder(self, ndim, ntemps, Tmax): #https://github.com/konqr/ptemcee/blob/master/ptemcee/sampler.py
+	def default_beta_ladder(ndim, ntemps, Tmax): #https://github.com/konqr/ptemcee/blob/master/ptemcee/sampler.py
 		"""
 		Returns a ladder of :math:`\beta \equiv 1/T` under a geometric spacing that is determined by the
 		arguments ``ntemps`` and ``Tmax``.  The temperature selection algorithm works as follows:
@@ -485,10 +489,10 @@ class ParallelTemperingTL(object):
 		# temp = 2
 		# for i in range(0,self.num_chains):
 		# 	self.temperatures.append(temp)
-		# 	temp += 2.5 #(self.maxtemp/self.num_chains)
+		# 	temp += 2.5 #(self.max_temp/self.num_chains)
 		# 	print (self.temperatures[i])
 		#Geometric Spacing
-		betas = self.default_beta_ladder(2, ntemps=self.num_chains, Tmax=self.maxtemp)
+		betas = self.default_beta_ladder(2, ntemps=self.num_chains, Tmax=self.max_temp)
 		self.temperatures = [np.inf if beta == 0 else 1.0/beta for beta in betas]
 
 
@@ -498,11 +502,13 @@ class ParallelTemperingTL(object):
 		w = np.random.randn(self.num_param)
 
 		for s_index in range(self.num_sources):
+			make_directory(self.directory+'/source_'+str(s_index))
 			for c_index in range(0, self.num_chains):
-				self.chains.append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
+				self.source_chains[s_index].append(ptReplica(w, self.num_samples, self.train_data[s_index], self.test_data[s_index], self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/source_'+str(s_index), self.source_parameter_queue[s_index][c_index], self.source_wait_chain[s_index][c_index], self.source_event[s_index][c_index]))
 
+		make_directory(self.directory+'/target')
 		for c_index in range(0, self.num_chains):
-			self.chains.append(ptReplica(w, self.num_samples, self.target_train_data, self.target_test_data, self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'target', self.target_parameter_queue[c_index], self.target_wait_chain[c_index], self.target_event[c_index]))
+			self.target_chains.append(ptReplica(w, self.num_samples, self.target_train_data, self.target_test_data, self.topology, self.burn_in, self.temperatures[c_index], self.swap_interval, self.directory+'/target', self.target_parameter_queue[c_index], self.target_wait_chain[c_index], self.target_event[c_index]))
 
 	def swap_procedure(self, parameter_queue_1, parameter_queue_2):
 		if parameter_queue_2.empty() is False and parameter_queue_1.empty() is False:
@@ -534,8 +540,8 @@ class ParallelTemperingTL(object):
 			return
 
 	def run_chains(self):
-		x_test = np.linspace(0,1,num=self.testdata.shape[0])
-		x_train = np.linspace(0,1,num=self.traindata.shape[0])
+		# x_test = np.linspace(0,1,num=self.testdata.shape[0])
+		# x_train = np.linspace(0,1,num=self.traindata.shape[0])
 		# only adjacent chains can be swapped therefore, the number of proposals is ONE less num_chains
 		swap_proposal = np.ones(self.num_chains-1)
 		# create parameter holders for paramaters that will be swapped
@@ -600,7 +606,7 @@ class ParallelTemperingTL(object):
 
 			for k in range(0,self.num_chains-1):
 				#print('starting swap')
-				self.target_chain_queue[index].put(self.swap_procedure(self.target_parameter_queue[k], self.target_parameter_queue[k+1]))
+				self.target_chain_queue.put(self.swap_procedure(self.target_parameter_queue[k], self.target_parameter_queue[k+1]))
 
 				while True:
 					if self.target_chain_queue.empty():
@@ -705,105 +711,76 @@ class ParallelTemperingTL(object):
 
 
 
-
-
-
-	# def createPTtasks(self):
-	#     self.sources = []
-	#     NumSample = 500
-	# 	maxtemp = 20
-	# 	swap_ratio = 0.125
-	# 	num_chains = 10
-	# 	burn_in = 0.2
-	#     swap_interval =  int(swap_ratio * (NumSample/num_chains))
-	#     for index in range(self.numSources):
-	#         path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
-	# 		make_directory(path)
-	#         self.sources.append(ParallelTempering(self.traindata[index], self.testdata[index], self.topology, num_chains, maxtemp, NumSample, swap_interval, path))
-	#     self.targetTop = self.topology.copy()
-	#     self.targetTop[1] = int(1.0 * self.topology[1])
-	#     path = self.directory+"/results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio) +"_source_"+str(index)
-	#     make_directory(path)
-	#     self.target = ParallelTempering(self.targettraindata, self.targettestdata, self.targetTop, num_chains, maxtemp, NumSample, swap_interval, path)
-	#
-	# def init_chains(self, burn_in=0.2):
-	#     for index in range(self.numSources):
-	#         self.sources.initialize_chains(burn_in)
-	#     self.target.initialize_chains(burn_in)
-
-
-
 def make_directory (directory):
 	if not os.path.exists(directory):
 		os.makedirs(directory)
 
 def main():
-	pass
-# 	resultingfile = open('RESULTS/master_result_file.txt','a+')
-# 	for i in range(1,3):
-# 		problem =	2
-# 		if problem ==	1:
-# 			traindata = np.loadtxt("Data_OneStepAhead/Lazer/train.txt")
-# 			testdata	= np.loadtxt("Data_OneStepAhead/Lazer/test.txt")	#
-# 			name	= "Lazer"
-# 		if problem ==	2:
-# 			traindata = np.loadtxt(  "Data_OneStepAhead/Sunspot/train.txt")
-# 			testdata	= np.loadtxt( "Data_OneStepAhead/Sunspot/test.txt")	#
-# 			name	= "Sunspot"
-# 		if problem ==	3:
-# 			traindata = np.loadtxt("Data_OneStepAhead/Mackey/train.txt")
-# 			testdata	= np.loadtxt("Data_OneStepAhead/Mackey/test.txt")  #
-# 			name	= "Mackey"
-# 		if problem ==	4:
-# 			traindata = np.loadtxt("Data_OneStepAhead/Lorenz/train.txt")
-# 			testdata	= np.loadtxt("Data_OneStepAhead/Lorenz/test.txt")  #
-# 			name	= "Lorenz"
-# 		if problem ==	5:
-# 			traindata = np.loadtxt( "Data_OneStepAhead/Rossler/train.txt")
-# 			testdata	= np.loadtxt( "Data_OneStepAhead/Rossler/test.txt")	#
-# 			name	= "Rossler"
-# 		if problem ==	6:
-# 			traindata = np.loadtxt("Data_OneStepAhead/Henon/train.txt")
-# 			testdata	= np.loadtxt("Data_OneStepAhead/Henon/test.txt")	#
-# 			name	= "Henon"
-# 		if problem ==	7:
-# 			traindata = np.loadtxt("Data_OneStepAhead/ACFinance/train.txt")
-# 			testdata	= np.loadtxt("Data_OneStepAhead/ACFinance/test.txt")	#
-# 			name	= "ACFinance"
-#
-# 		###############################
-# 		#THESE ARE THE HYPERPARAMETERS#
-# 		###############################
-#
-# 		hidden = 5
-# 		ip = 4 #input
-# 		output = 1
-# 		topology = [ip, hidden, output]
-#
-# 		NumSample = 500
-# 		maxtemp = 20
-# 		swap_ratio = 0.125
-# 		num_chains = 10
-# 		burn_in = 0.2
-#
-# 		###############################
-#
-# 		swap_interval =  int(swap_ratio * (NumSample/num_chains)) #how ofen you swap neighbours
-# 		timer = time.time()
-# 		path = "RESULTS/"+name+"_results_"+str(NumSample)+"_"+str(maxtemp)+"_"+str(num_chains)+"_"+str(swap_ratio)
-# 		make_directory(path)
-# 		print(path)
-# 		pt = ParallelTempering(traindata, testdata, topology, num_chains, maxtemp, NumSample, swap_interval, path)
-# 		pt.initialize_chains(burn_in)
-#
-# 		pos_w, fx_train, fx_test, x_train, x_test, rmse_train, rmse_test, accept_total = pt.run_chains()
-#
-# 		print ('Successfully Regressed')
-# 		print (accept_total, '% total accepted')
-#
-# 		timer2 = time.time()
-# 		print ((timer2 - timer), 'sec time taken')
-#
+	#################################
+	## DATASET SPECIFIC PARAMETERS ##
+	#################################
+	name = ["Wine-Quality", "UJIndoorLoc", "Sarcos", "Synthetic"]
+	input = [11, 520, 21, 4]
+	hidden = [105, 140, 55, 25]
+	output = [10, 2, 1, 1]
+	num_sources = [1, 1, 1, 5]
+	type = {0:'classification', 1:'regression', 2:'regression', 3:'regression'}
+	num_samples = [800, 1000, 400, 800]
+
+	#################################
+	##	THESE ARE THE PARAMETERS   ##
+	#################################
+
+	problem = 1
+	problemtype = type[problem]
+	topology = [input[problem], hidden[problem], output[problem]]
+	problem_name = name[problem]
+	max_temp = 2
+	swap_ratio = 0.125
+	num_chains = 10
+	burn_in = 0.2
+
+	#################################
+
+	# targettraindata = np.genfromtxt('../datasets/WineQualityDataset/preprocess/winequality-red-train.csv', delimiter=',')
+	# targettestdata = np.genfromtxt('../datasets/WineQualityDataset/preprocess/winequality-red-test.csv', delimiter=',')
+	target_train_data = np.genfromtxt('datasets/UJIndoorLoc/targetData/0train.csv', delimiter=',')[:, :-2]
+	target_test_data = np.genfromtxt('datasets/UJIndoorLoc/targetData/0test.csv', delimiter=',')[:, :-2]
+	# targettraindata = np.genfromtxt('../../datasets/synthetic_data/target_train.csv', delimiter=',')
+	# targettestdata = np.genfromtxt('../../datasets/synthetic_data/target_test.csv', delimiter=',')
+	# targettraindata = np.genfromtxt('../datasets/Sarcos/target_train.csv', delimiter=',')
+
+	train_data = []
+	test_data = []
+	for i in range(num_sources[problem]):
+		# train_data.append(np.genfromtxt('../datasets/WineQualityDataset/preprocess/winequality-white-train.csv', delimiter=','))
+		# test_data.append(np.genfromtxt('../datasets/WineQualityDataset/preprocess/winequality-red-test.csv', delimiter=','))
+		train_data.append(np.genfromtxt('datasets/UJIndoorLoc/sourceData/'+str(i)+'train.csv', delimiter=',')[:, :-2])
+		test_data.append(np.genfromtxt('datasets/UJIndoorLoc/sourceData/'+str(i)+'test.csv', delimiter=',')[:, :-2])
+		# train_data.append(np.genfromtxt('../../datasets/synthetic_data/source'+str(i+1)+'.csv', delimiter=','))
+		# test_data.append(np.genfromtxt('../../datasets/synthetic_data/target_test.csv', delimiter=','))
+		# train_data.append(np.genfromtxt('../datasets/Sarcos/source.csv', delimiter=','))
+		# test_data.append(np.genfromtxt('../datasets/Sarcos/target_test.csv', delimiter=','))
+		pass
+
+	#################################
+	random.seed(time.time())
+	swap_interval =  int(swap_ratio * (num_samples[problem]/num_chains)) #how ofen you swap neighbours
+	timer = time.time()
+	path = "RESULTS/" + problem_name + "_results_" + str(num_samples[problem]) + "_" + str(max_temp) + "_" + str(num_chains) + "_" + str(swap_ratio)
+	make_directory(path)
+	print(path)
+	pt = ParallelTemperingTL(num_chains, num_samples[problem], num_sources[problem], train_data, test_data, target_train_data, target_test_data, topology, path,  max_temp, swap_interval, type=problemtype)
+	pt.initialize_chains(burn_in)
+
+	pt.run_chains()
+
+	print ('Successfully Regressed')
+	print (accept_total, '% total accepted')
+
+	timer2 = time.time()
+	print ((timer2 - timer), 'sec time taken')
+
 # 		#PLOTS
 # 		fx_mu = fx_test.mean(axis=0)
 # 		fx_high = np.percentile(fx_test, 95, axis=0)
@@ -820,7 +797,7 @@ def main():
 # 		outres = open(path+'/result.txt', "a+")
 # 		np.savetxt(outres, (rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total), fmt='%1.5f')
 # 		print (rmse_tr, rmsetr_std, rmse_tes, rmsetest_std)
-# 		np.savetxt(resultingfile,(NumSample, maxtemp, swap_ratio, num_chains, rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total))
+# 		np.savetxt(resultingfile,(NumSample, max_temp, swap_ratio, num_chains, rmse_tr, rmsetr_std, rmse_tes, rmsetest_std, accept_total))
 # 		ytestdata = testdata[:, ip]
 # 		ytraindata = traindata[:, ip]
 #
